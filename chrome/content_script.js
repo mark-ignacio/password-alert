@@ -19,6 +19,7 @@
  * @fileoverview Receives keyboard events and sends keyboard events to
  * background.js via sendMessage.
  * @author adhintz@google.com (Drew Hintz)
+ * @author mignacio@fb.com (Mark Ignacio)
  */
 
 'use strict';
@@ -31,84 +32,20 @@ goog.require('goog.string');
 goog.require('goog.uri.utils');
 
 
-/**
- * URL prefix for the SSO/login page.
- * @private {string}
- */
-passwordalert.sso_url_;
-
-
-/**
- * Selector for the form element on the SSO login page.
- * @private {string}
- */
-passwordalert.sso_form_selector_;
-
-
-/**
- * Selector for the password input element on the SSO login page.
- * @private {string}
- */
-passwordalert.sso_password_selector_;
-
-
-/**
- * Selector for the username input element on the SSO login page.
- * @private {string}
- */
-passwordalert.sso_username_selector_;
-
-
-/**
- * The corp email domain, e.g. "company.com".
- * Can also be a list of domains, such as "1.example.com,2.example.com".
- * @private {string}
- */
-passwordalert.corp_email_domain_;
-
-
-/**
- * URL prefix for the GAIA login page.
- * @private {string}
- * @const
- */
-passwordalert.GAIA_URL_ = 'https://accounts.google.com/';
-
-
-/**
- * URL prefix for second factor prompt. Happens on correct password.
- * @private {string}
- * @const
- */
-passwordalert.GAIA_SECOND_FACTOR_ =
-    'https://accounts.google.com/SecondFactor';
-
-
-/**
- * URL prefix for changing GAIA password.
- * @private {string}
- * @const
- */
-passwordalert.CHANGE_PASSWORD_URL_ =
-    'https://myaccount.google.com/security/signinoptions/password';
-
-
-/**
- * URL prefix for enforced changing GAIA password.
- * @private {string}
- * @const
- */
-passwordalert.ENFORCED_CHANGE_PASSWORD_URL_ =
-    'https://accounts.google.com/ChangePassword';
-
-
-/**
- * YouTube check connection page.
- * @private {string}
- * @const
- */
-passwordalert.YOUTUBE_CHECK_URL_ =
-    'https://accounts.youtube.com/accounts/CheckConnection';
+passwordalert.SITES_ = {
+  Facebook: {
+    loginURL: /^https:\/\/[a-z\-]+\.facebook\.com(\/|\/login\.php)?$/,
+    loginFormSelector: '#login_form',
+    loginEmailSelector: 'input[name=email]',
+    secondFactorURL: /^https:\/\/[a-z\-]+\.facebook\.com\/checkpoint\/?$/,
+    secondFactorFormSelector: 'form.checkpoint',
+    changePasswordURL: 'https://www.facebook.com/settings?' +
+    'tab=account&section=password&view',
+    changePasswordFormSelector: 'form[action="/ajax/settings/account/password.php"]',
+    changePasswordName: 'password_new',
+    securityEmailAddress: 'cert@fb.com'
+  }
+};
 
 
 /**
@@ -117,67 +54,6 @@ passwordalert.YOUTUBE_CHECK_URL_ =
  * @const
  */
 passwordalert.MANAGED_STORAGE_NAMESPACE_ = 'managed';
-
-
-/**
- * HTML snippets from corp login pages.  Default values are for consumers.
- * @private {Array.<string>}
- */
-passwordalert.corp_html_ = [
-  'One account. All of Google.',
-  'Sign in with your Google Account',
-  '<title>Sign in - Google Accounts',
-  '//ssl.gstatic.com/accounts/ui/logo_2x.png'
-];
-
-
-/**
- * HTML snippets from corp login pages that are more specific.  Default
- * values are for consumers.
- * TODO(henryc): Add a tap test so that we will know when these changes.
- * @private {Array.<string>}
- */
-passwordalert.corp_html_tight_ = [
-  // From https://accounts.google.com/ServiceLogin
-  ('<input id="Passwd" name="Passwd" placeholder="Password" class="" ' +
-   'type="password">'),
-  ('<input id="Passwd" name="Passwd" type="password" placeholder="Password" ' +
-   'class="">'),
-  ('<input id="signIn" name="signIn" class="rc-button rc-button-submit" ' +
-   'type="submit" value="Sign in'),
-  ('<input id="signIn" name="signIn" class="rc-button rc-button-submit" ' +
-   'value="Sign in" type="submit">'),
-  // From https://accounts.google.com/b/0/EditPasswd?hl=en
-  '<div class="editpasswdpage main content clearfix">'
-];
-
-
-/**
- * If the current page looks like corp_html_. undefined means not checked yet.
- * @private {boolean}
- */
-passwordalert.looks_like_google;
-
-
-/**
- * Email address of the security admin.
- * @private {string}
- */
-passwordalert.security_email_address_;
-
-
-/**
- * Whitelist of domain suffixes that are not phishing or checked for password.
- * Default values are for Google login pages. https is not specified, however
- * these default domains are preloaded HSTS in Chrome.
- * @private {Array.<string>}
- */
-passwordalert.whitelist_top_domains_ = [
-  'accounts.google.com',
-  'login.corp.google.com',
-  'myaccount.google.com'
-];
-
 
 /**
  * The URL for the current page.
@@ -252,48 +128,29 @@ passwordalert.ALLOWED_HOSTS_KEY_ = 'allowed_hosts';
  * @private
  */
 passwordalert.setManagedPolicyValuesIntoConfigurableVariables_ =
-    function(callback) {
-  chrome.storage.managed.get(function(managedPolicy) {
-    if (Object.keys(managedPolicy).length == 0) {
-      passwordalert.enterpriseMode_ = false;
-    } else {
-      passwordalert.enterpriseMode_ = true;
-      passwordalert.corp_email_domain_ =
-          managedPolicy['corp_email_domain'].replace(/@/g, '').toLowerCase();
-      passwordalert.security_email_address_ =
-          managedPolicy['security_email_address'];
-      passwordalert.sso_form_selector_ = managedPolicy['sso_form_selector'];
-      passwordalert.sso_password_selector_ =
-          managedPolicy['sso_password_selector'];
-      passwordalert.sso_url_ = managedPolicy['sso_url'];
-      passwordalert.sso_username_selector_ =
-          managedPolicy['sso_username_selector'];
+  function (callback) {
+    chrome.storage.managed.get(function (managedPolicy) {
+      if (Object.keys(managedPolicy).length == 0) {
+        passwordalert.isEnterpriseUse_ = false;
+      } else {
+        // nb: overwrites existing policies
+        managedPolicy.forEach(function (managedSite) {
+          var newPolicy = {};
+          var policyName = managedSite['name'];
+          for (var key in managedSite) {
+            if (!managedSite.hasOwnProperty(key)) continue;
 
-      // For the policies below, we want to append the user-provided policies
-      // to the extension-provided defaults.
-      if (managedPolicy['whitelist_top_domains']) {
-        Array.prototype.push.apply(
-            passwordalert.whitelist_top_domains_,
-            managedPolicy['whitelist_top_domains']
-        );
+            // strings and regex only~
+            var value = managedSite[key];
+            if (typeof value === 'string' || value instanceof RegExp) {
+              newPolicy[key] = value;
+            }
+          }
+          passwordalert.SITES_[policyName] = managedSite;
+        });
       }
-      if (managedPolicy['corp_html']) {
-        Array.prototype.push.apply(
-            passwordalert.corp_html_,
-            managedPolicy['corp_html']
-        );
-      }
-      if (managedPolicy['corp_html_tight']) {
-        Array.prototype.push.apply(
-            passwordalert.corp_html_tight_,
-            managedPolicy['corp_html_tight']
-        );
-      }
-
-    }
-    passwordalert.policyLoaded_ = true;
-    callback();
-  });
+      callback();
+    });
 };
 
 
@@ -318,67 +175,37 @@ passwordalert.setManagedPolicyValuesIntoConfigurableVariables_ =
  */
 passwordalert.handleManagedPolicyChanges_ =
     function(changedPolicies, storageNamespace) {
-  if (storageNamespace == passwordalert.MANAGED_STORAGE_NAMESPACE_) {
-    var subtractArray = function(currentPolicyArray, oldPolicyArray) {
-      return currentPolicyArray.filter(
-          function(val) { return oldPolicyArray.indexOf(val) < 0; }
-      );
+      if (storageNamespace ==
+          passwordalert.MANAGED_STORAGE_NAMESPACE_) {
+        console.log('Handling changed policies.');
+        Object.keys(changedPolicies).forEach(function (changedPolicy) {
+          if (!passwordalert.isEnterpriseUse_) {
+            passwordalert.isEnterpriseUse_ = true;
+            console.log('Enterprise use enabled via updated managed policy.');
+          }
+
+          passwordalert.SITES_[changedPolicy] =
+              changedPolicies[changedPolicy]['newValue'];
+        });
+      }
     };
 
-    var changedPolicy;
-    for (changedPolicy in changedPolicies) {
-      if (!passwordalert.enterpriseMode_) {
-        passwordalert.enterpriseMode_ = true;
-      }
-      var newPolicyValue = changedPolicies[changedPolicy]['newValue'];
-      var oldPolicyValue = changedPolicies[changedPolicy]['oldValue'];
-      switch (changedPolicy) {
-        case 'corp_email_domain':
-          passwordalert.corp_email_domain_ =
-              newPolicyValue.replace(/@/g, '').toLowerCase();
-          break;
-        case 'corp_html':
-          // Remove the old values before appending new ones.
-          passwordalert.corp_html_ = subtractArray(
-              passwordalert.corp_html_,
-              oldPolicyValue);
-          Array.prototype.push.apply(
-              passwordalert.corp_html_,
-              newPolicyValue);
-          break;
-        case 'corp_html_tight':
-          passwordalert.corp_html_tight_ = subtractArray(
-              passwordalert.corp_html_tight_,
-              oldPolicyValue);
-          Array.prototype.push.apply(
-              passwordalert.corp_html_tight_,
-              newPolicyValue);
-          break;
-        case 'security_email_address':
-          passwordalert.security_email_address_ = newPolicyValue;
-          break;
-        case 'sso_form_selector':
-          passwordalert.sso_form_selector_ = newPolicyValue;
-          break;
-        case 'sso_password_selector':
-          passwordalert.sso_password_selector_ = newPolicyValue;
-          break;
-        case 'sso_url':
-          passwordalert.sso_url_ = newPolicyValue;
-          break;
-        case 'sso_username_selector':
-          passwordalert.sso_username_selector_ = newPolicyValue;
-          break;
-        case 'whitelist_top_domains':
-          passwordalert.whitelist_top_domains_ = subtractArray(
-              passwordalert.whitelist_top_domains_,
-              oldPolicyValue);
-          Array.prototype.push.apply(
-              passwordalert.whitelist_top_domains_,
-              newPolicyValue);
-          break;
-      }
-    }
+/**
+ * Checks only up to the path of a URL against a regexp or string.
+ * @param {string} url
+ * @param {string|RegExp} toMatch
+ * @return bool
+ */
+passwordalert.pathMatch = function (url, toMatch) {
+  var questionIndex = url.indexOf('?');
+  if (questionIndex != -1) {
+    url = url.slice(0, questionIndex);
+  }
+  if (toMatch instanceof RegExp) {
+    return toMatch.test(url);
+  }
+  else if (typeof toMatch === 'string') {
+    return toMatch === url;
   }
 };
 
@@ -391,107 +218,73 @@ passwordalert.handleManagedPolicyChanges_ =
  * corporate login pages.
  * @private
  */
-passwordalert.completePageInitializationIfReady_ = function() {
-  if (!passwordalert.policyLoaded_ || !passwordalert.domContentLoaded_) {
-    return;
+passwordalert.completePageInitialization_ = function() {
+  // match page against each site's login pages
+
+  var url;
+  var qIndex = passwordalert.url_.indexOf('?');
+  if (qIndex === -1) {
+    url = passwordalert.url_;
+  }
+  else {
+    url = passwordalert.url_.slice(0, qIndex);
   }
 
-  // Ignore YouTube login CheckConnection because the login page makes requests
-  // to it, but that does not mean the user has successfully authenticated.
-  if (goog.string.startsWith(passwordalert.url_,
-                             passwordalert.YOUTUBE_CHECK_URL_)) {
-    return;
-  }
-  if (passwordalert.sso_url_ &&
-      goog.string.startsWith(passwordalert.url_,
-                             passwordalert.sso_url_)) {
-    console.log('SSO login url is detected: ' + passwordalert.url_);
-    var loginForm = document.querySelector(passwordalert.sso_form_selector_);
-    if (loginForm) {  // null if the user gets a Password Change Warning.
-      chrome.runtime.sendMessage({action: 'deletePossiblePassword'});
-      loginForm.addEventListener(
-          'submit', passwordalert.saveSsoPassword_, true);
-    } else {
-      console.log('No login form found on SSO page.');
-    }
-  } else if (goog.string.startsWith(passwordalert.url_,
-      passwordalert.ENFORCED_CHANGE_PASSWORD_URL_)) {
-    console.log('Enforced change password url is detected.');
-    // This change password page does not have any email information.
-    // So we fallback to the email already set in background.js because users
-    // will be prompted to login before arriving here.
-    var email;
-    chrome.runtime.sendMessage({action: 'getEmail'}, function(response) {
-      email = response;
-    });
-    var changePasswordForm = document.getElementById('gaia_changepasswordform');
-    changePasswordForm.addEventListener(
-        'submit', function() {
-          chrome.runtime.sendMessage({
-            action: 'setPossiblePassword',
-            email: email,
-            password: changePasswordForm.Passwd.value
-          });
-        }, true);
-  } else if (goog.string.startsWith(passwordalert.url_,
-                                    passwordalert.GAIA_URL_)) {
-    console.log('Google login url is detected: ' + passwordalert.url_);
-    if (goog.string.startsWith(passwordalert.url_,
-                               passwordalert.GAIA_SECOND_FACTOR_)) {
-      console.log('Second factor url is detected.');
-      // Second factor page is only displayed when the password is correct.
-      chrome.runtime.sendMessage({action: 'savePossiblePassword'});
-    } else {
-      console.log('Second factor url is not detected: ' + passwordalert.url_);
-      // Delete any previously considered password in case this is a re-prompt
-      // when an incorrect password is entered, such as a ServiceLoginAuth page.
-      chrome.runtime.sendMessage({action: 'deletePossiblePassword'});
-      var loginForm = document.getElementById('gaia_loginform');
-      // The chooser is also a gaia_loginform, so verify we're on a password
-      // entry page.
-      if (loginForm && document.getElementById('Email')) {
-        loginForm.addEventListener(
-            'submit', passwordalert.saveGaiaPassword_, true);
+  // Due to selector usage, page detection must run on document ready.
+  document.addEventListener('DOMContentLoaded', function() {
+    Object.keys(passwordalert.SITES_).forEach(function (name) {
+      var site = passwordalert.SITES_[name];
+      console.log('Checking for site: ' + name);
+      if (passwordalert.pathMatch(url, site.changePasswordURL)
+          && document.querySelector(site.changePasswordFormSelector)) {
+        console.log('Password change page detected: ' + passwordalert.url_);
+
+        // Logging into FB is possible with var email = any email or phone
+        // number, so let's just get whatever was entered in the first place.
+        chrome.runtime.sendMessage({site: name, action: 'getEmail'},
+            function (email) {
+              if (!email) return;
+
+              var form = document.querySelector(
+                  site.changePasswordFormSelector);
+              form.addEventListener('submit', function () {
+                chrome.runtime.sendMessage({
+                  action: 'setPossiblePassword',
+                  site: name,
+                  email: email,
+                  password: form[site.changePasswordName]
+                });
+              });
+            }
+        );
       }
-    }
-  } else if (goog.string.startsWith(passwordalert.url_,
-                                    passwordalert.CHANGE_PASSWORD_URL_)) {
-    console.log('Change password url is detected: ' + passwordalert.url_);
-    chrome.runtime.sendMessage({action: 'deletePossiblePassword'});
-    // Need to wait until the change password page has finished loading
-    // before listener can be added.
-    window.onload = function() {
-      var allButtons = document.querySelectorAll('div[role=button]');
-      var changePasswordButton = allButtons[allButtons.length - 1];
-      changePasswordButton.addEventListener(
-          'click', passwordalert.saveChangedPassword_, true);
-      // Pressing spacebar on the change password button will trigger save.
-      changePasswordButton.addEventListener(
-          'keydown', function(evt) {
-            if (evt.keyCode == 32) {
-              passwordalert.saveChangedPassword_();
-            }
-          }, true);
-      // Pressing enter anywhere on the change password page will trigger save.
-      document.addEventListener(
-          'keydown', function(evt) {
-            if (evt.keyCode == 13) {
-              passwordalert.saveChangedPassword_();
-            }
-          }, true);
-    };
-  } else {  // Not a Google login URL.
-    if (!passwordalert.whitelistUrl_() &&
-        passwordalert.looksLikeGooglePageTight_()) {
-      console.log('Detected possible phishing page.');
-      chrome.runtime.sendMessage({
-        action: 'looksLikeGoogle',
-        url: passwordalert.url_,
-        referer: document.referrer.toString(),
-        securityEmailAddress: passwordalert.security_email_address_});
-    }
-    chrome.runtime.sendMessage({action: 'savePossiblePassword'});
-  }
+      else if (passwordalert.pathMatch(url, site.secondFactorURL)) {
+        console.log('Second factor URL detected: ' + passwordalert.url_);
+
+        // Password was typed in successfully if we're on the 2FA page.
+        chrome.runtime.sendMessage({
+          action: 'savePossiblePassword',
+          site: name
+        });
+      }
+      else if (passwordalert.pathMatch(url, site.loginURL)
+          && document.querySelector(site.loginFormSelector)) {
+        var loginForm = document.querySelector(site.loginFormSelector);
+        console.log('Login page detected: ' + passwordalert.url_);
+
+        loginForm.addEventListener('submit',
+            passwordalert.saveGaiaPassword_
+        );
+      }
+      else {
+        // todo: port phishing detection from upstream
+        chrome.runtime.sendMessage({
+          action: 'savePossiblePassword',
+          site: name
+        });
+      }
+    });
+  });
 
   chrome.runtime.sendMessage({action: 'statusRequest'}, function(response) {
     passwordalert.stop_();
@@ -514,35 +307,28 @@ passwordalert.start_ = function(msg) {
     // if passwordLengths_length == 0. So, do not store passwordLengths,
     // just have the message from background page tell it to start or stop.
     passwordalert.passwordLengths_ = state.passwordLengths;
-    if (passwordalert.passwordLengths_.length == 0) {
+    if (passwordalert.passwordLengths_.length === 0) {
       passwordalert.stop_(); // no passwords, so no need to watch
       return;
     }
   }
 
-  if ((passwordalert.sso_url_ &&
-      goog.string.startsWith(passwordalert.url_,
-                             passwordalert.sso_url_)) ||
-      goog.string.startsWith(passwordalert.url_, passwordalert.GAIA_URL_) ||
-      passwordalert.whitelistUrl_()) {
-    passwordalert.stop_(); // safe URL, so no need to watch it
-    return;
-  }
+  Object.keys(passwordalert.SITES_).forEach(function(name) {
+    var site = passwordalert.SITES_[name];
 
-  passwordalert.isRunning_ = true;
-
-  // If the current site is marked as Always Ignore, then passwordalert.stop_().
-  if (!passwordalert.enterpriseMode_) {
-    chrome.storage.local.get(
-        passwordalert.ALLOWED_HOSTS_KEY_,
-        function(allowedHosts) {
-          var currentHost = window.location.origin;
-          if (Object.keys(allowedHosts).length > 0 &&
-              allowedHosts[passwordalert.ALLOWED_HOSTS_KEY_][currentHost]) {
-            passwordalert.stop_();
-          }
-        });
-  }
+    // todo: make "always ignore" whitelist a page if not disabled for site
+    if ((passwordalert.pathMatch(passwordalert.url_, site.loginURL)
+          && document.querySelector(site.loginFormSelector))
+        || passwordalert.pathMatch(passwordalert.url_, site.secondFactorURL)) {
+      chrome.runtime.sendMessage({
+        action: 'whitelisted',
+        site: name
+      });
+    }
+    else {
+      passwordalert.isRunning_ = true;
+    }
+  });
 
   passwordalert.looksLikeGooglePage_();  // Run here so that it's cached.
 };
@@ -679,13 +465,13 @@ passwordalert.saveSsoPassword_ = function(evt) {
  * @private
  */
 passwordalert.saveGaiaPassword_ = function(evt) {
-  console.log('Saving Google login password.');
+  console.log('Saving login password.');
   //TODO(adhintz) Should we do any validation here?
-  var loginForm = document.getElementById('gaia_loginform');
-  var email = loginForm.Email ?
-      goog.string.trim(loginForm.Email.value.toLowerCase()) : '';
-  var password = loginForm.Passwd ? loginForm.Passwd.value : '';
-  if ((passwordalert.enterpriseMode_ &&
+  var loginForm = evt.target;
+  var email = loginForm.email ?
+      goog.string.trim(loginForm.email.value.toLowerCase()) : '';
+  var password = loginForm.pass ? loginForm.pass.value : '';
+  if ((passwordalert.isEnterpriseUse_ &&
       !passwordalert.isEmailInDomain_(email)) ||
       goog.string.isEmptyString(goog.string.makeSafe(password))) {
     return;  // Ignore generic @gmail.com logins or for other domains.
@@ -712,7 +498,7 @@ passwordalert.saveChangedPassword_ = function() {
     if ((Date.now() - passwordChangeStartTime) > 1000) {
       return;
     }
-    console.log('Saving changed Google password.');
+    console.log('Saving changed password.');
     var dataConfig =
         document.querySelector('div[data-config]').getAttribute('data-config');
     var start = dataConfig.indexOf('",["') + 4;

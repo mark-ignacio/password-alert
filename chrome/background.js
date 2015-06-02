@@ -20,6 +20,7 @@
  * to see if they're the user's password. Populates localStorage with partial
  * hashes of the user's password.
  * @author adhintz@google.com (Drew Hintz)
+ * @author mignacio@fb.com (Mark Ignacio)
  */
 
 'use strict';
@@ -47,18 +48,15 @@ passwordalert.background.SALT_KEY_ = 'salt';
 passwordalert.background.HASH_BITS_ = 37;
 
 
-/**
- * Where password use reports are sent.
- * @private {string}
- */
-passwordalert.background.report_url_;
-
-
-/**
- * Whether the user should be prompted to initialize their password.
- * @private {boolean}
- */
-passwordalert.background.shouldInitializePassword_;
+passwordalert.background.SITES_ = {
+  Facebook: {
+    emailDomain: undefined,
+    displayUserAlert_: true,
+    reportURL: undefined,
+    shouldInitializePassword: true,
+    minimumLength: 6
+  }
+};
 
 
 /**
@@ -66,7 +64,7 @@ passwordalert.background.shouldInitializePassword_;
  * @private {number}
  * @const
  */
-passwordalert.background.MINIMUM_PASSWORD_ = 8;
+passwordalert.background.MINIMUM_PASSWORD_ = Number.MAX_VALUE;
 
 
 /**
@@ -169,8 +167,9 @@ passwordalert.background.ENTER_ASCII_CODE_ = 13;
 /**
  * Request from content_script. action is always defined. Other properties are
  * only defined for certain actions.
- * @typedef {{action: string, password: (string|undefined),
- *            url: (string|undefined), looksLikeGoogle: (string|undefined)}}
+ * @typedef {{action: string, email: (string|undefined),
+ *            password: (string|undefined), url: (string|undefined),
+ *           looksLikeGoogle: (string|undefined), site: (string|undefined}}
  * @private
  */
 passwordalert.background.Request_;
@@ -203,27 +202,6 @@ passwordalert.background.enterpriseMode_ = false;
 
 
 /**
- * The corp email domain, e.g. "@company.com".
- * @private {string}
- */
-passwordalert.corp_email_domain_;
-
-
-/**
- * Display the consumer mode alert even in enterprise mode.
- * @private {boolean}
- */
-passwordalert.background.displayUserAlert_ = false;
-
-
-/**
- * Domain-specific shared auth secret for enterprise when oauth token fails.
- * @private {string}
- */
-passwordalert.background.domain_auth_secret_ = '';
-
-
-/**
  * The id of the chrome notification that prompts the user to initialize
  * their password.
  * @private {string}
@@ -239,24 +217,6 @@ passwordalert.background.NOTIFICATION_ID_ =
  * @const
  */
 passwordalert.background.ALLOWED_HOSTS_KEY_ = 'allowed_hosts';
-
-
-/**
- * Key for the phishing warning whitelist object in chrome storage.
- * @private {string}
- * @const
- */
-passwordalert.background.PHISHING_WARNING_WHITELIST_KEY_ =
-    'phishing_warning_whitelist';
-
-
-/**
- * The email of the user signed in to Chrome (which could be empty if there's
- * no signed in user). Only updates when the background page first loads.
- * @private {string}
- */
-passwordalert.background.signed_in_email_ = '';
-
 
 /**
  * Whether the extension was newly installed.
@@ -292,25 +252,29 @@ passwordalert.background.handleNewInstall_ = function(details) {
  * @private
  */
 passwordalert.background.setManagedPolicyValuesIntoConfigurableVariables_ =
-    function(callback) {
-  chrome.storage.managed.get(function(managedPolicy) {
-    if (Object.keys(managedPolicy).length == 0) {
-      console.log('No managed policy found. Consumer mode.');
-    } else {
-      console.log('Managed policy found.  Enterprise mode.');
-      passwordalert.background.corp_email_domain_ =
-          managedPolicy['corp_email_domain'].replace(/@/g, '').toLowerCase();
-      passwordalert.background.displayUserAlert_ =
-          managedPolicy['display_user_alert'];
-      passwordalert.background.enterpriseMode_ = true;
-      passwordalert.background.report_url_ = managedPolicy['report_url'];
-      passwordalert.background.shouldInitializePassword_ =
-          managedPolicy['should_initialize_password'];
-      passwordalert.background.domain_auth_secret_ =
-          managedPolicy['domain_auth_secret'];
-    }
-    callback();
-  });
+  function (callback) {
+    chrome.storage.managed.get(function (managedPolicy) {
+      if (Object.keys(managedPolicy).length == 0) {
+        passwordalert.isEnterpriseUse_ = false;
+      } else {
+        // nb: overwrites any existing policies
+        managedPolicy.forEach(function (managedSite) {
+          var newPolicy = {};
+          var policyName = managedSite['name'];
+          for (var key in managedSite) {
+            if (!managedSite.hasOwnProperty(key)) continue;
+
+            // strings and regex only~
+            var value = managedSite[key];
+            if (typeof value === 'string' || value instanceof RegExp) {
+              newPolicy[key] = value;
+            }
+          }
+          passwordalert.SITES_[policyName] = managedSite;
+        });
+      }
+      callback();
+    });
 };
 
 
@@ -331,35 +295,18 @@ passwordalert.background.setManagedPolicyValuesIntoConfigurableVariables_ =
  */
 passwordalert.background.handleManagedPolicyChanges_ =
     function(changedPolicies, storageNamespace) {
-  if (storageNamespace ==
-      passwordalert.background.MANAGED_STORAGE_NAMESPACE_) {
-    console.log('Handling changed policies.');
-    var changedPolicy;
-    for (changedPolicy in changedPolicies) {
-      if (!passwordalert.background.enterpriseMode_) {
-        passwordalert.background.enterpriseMode_ = true;
-        console.log('Enterprise mode via updated managed policy.');
-      }
-      var newPolicyValue = changedPolicies[changedPolicy]['newValue'];
-      switch (changedPolicy) {
-        case 'corp_email_domain':
-          passwordalert.background.corp_email_domain_ =
-              newPolicyValue.replace(/@/g, '').toLowerCase();
-          break;
-        case 'display_user_alert':
-          passwordalert.background.displayUserAlert_ = newPolicyValue;
-          break;
-        case 'report_url':
-          passwordalert.background.report_url_ = newPolicyValue;
-          break;
-        case 'should_initialize_password':
-          passwordalert.background.shouldInitializePassword_ = newPolicyValue;
-          break;
-        case 'domain_auth_secret':
-          passwordalert.background.domain_auth_secret_ = newPolicyValue;
-          break;
-      }
-    }
+      if (storageNamespace ==
+          passwordalert.background.MANAGED_STORAGE_NAMESPACE_) {
+        console.log('Handling changed policies.');
+        Object.keys(changedPolicies).forEach(function (changedPolicy) {
+          if (!passwordalert.background.isEnterpriseUse_) {
+            passwordalert.background.isEnterpriseUse_ = true;
+            console.log('Enterprise use enabled via updated managed policy.');
+          }
+
+          passwordalert.background.SITES_[changedPolicy] =
+              changedPolicies[changedPolicy]['newValue'];
+        });
   }
 };
 
@@ -441,6 +388,7 @@ passwordalert.background.displayInitializePasswordNotification_ = function() {
  * @private
  */
 passwordalert.background.initializePasswordIfReady_ = function() {
+  // todo: batch requests for password initialization
   if (!passwordalert.background.isNewInstall_ ||
       !passwordalert.background.isInitialized_) {
     return;
@@ -521,6 +469,7 @@ passwordalert.background.handleRequest_ = function(
   if (sender.tab === undefined) {
     return;
   }
+  console.log(request);
   switch (request.action) {
     case 'handleKeypress':
       passwordalert.background.handleKeypress_(sender.tab.id, request);
@@ -551,7 +500,7 @@ passwordalert.background.handleRequest_ = function(
       passwordalert.background.setPossiblePassword_(sender.tab.id, request);
       break;
     case 'savePossiblePassword':
-      passwordalert.background.savePossiblePassword_(sender.tab.id);
+      passwordalert.background.savePossiblePassword_(sender.tab.id, request);
       break;
     case 'getEmail':
       sendResponse(
@@ -731,9 +680,12 @@ passwordalert.background.setPossiblePassword_ = function(tabId, request) {
 
   console.log('Setting possible password for %s, password length of %s',
               request.email, request.password.length);
+  var salt = passwordalert.background.generateSalt_();
   passwordalert.background.possiblePassword_[tabId] = {
+    'site': request.site,
     'email': request.email,
-    'password': passwordalert.background.hashPassword_(request.password),
+    'password': passwordalert.background.hashPassword_(request.password, salt),
+    'salt': salt,
     'length': request.password.length
   };
 };
@@ -759,9 +711,10 @@ passwordalert.background.getLocalStorageItem_ = function(index) {
 /**
  * The login was successful, so write the possible password to localStorage.
  * @param {number} tabId The tab that was used to log in.
+ * @param {passwordalert.background.Request_} request Request that was passed.
  * @private
  */
-passwordalert.background.savePossiblePassword_ = function(tabId) {
+passwordalert.background.savePossiblePassword_ = function(tabId, request) {
   var possiblePassword_ = passwordalert.background.possiblePassword_[tabId];
   if (!possiblePassword_) {
     return;
@@ -769,63 +722,57 @@ passwordalert.background.savePossiblePassword_ = function(tabId) {
   var email = possiblePassword_['email'];
   var password = possiblePassword_['password'];
   var length = possiblePassword_['length'];
+  var site = request.site;
+  var salt = possiblePassword_['salt'];
 
-  // Delete old email entries.
-  for (var i = 0; i < localStorage.length; i++) {
-    var item = passwordalert.background.getLocalStorageItem_(i);
-    if (item && item['email'] == email) {
-      delete item['email'];
-      delete item['date'];
-      localStorage[localStorage.key(i)] = JSON.stringify(item);
-    }
-  }
+  var toStore = {};
+  toStore[password] = {
+    salt: salt,
+    email: email,
+    site: site,
+    length: length,
+    date: new Date()
+  };
 
-  // Delete any entries that now have no emails.
-  var keysToDelete = [];
-  for (var i = 0; i < localStorage.length; i++) {
-    var item = passwordalert.background.getLocalStorageItem_(i);
-    if (item && !('email' in item)) {
-      // Delete the item later.
-      // We avoid modifying localStorage while iterating over it.
-      keysToDelete.push(localStorage.key(i));
-    }
-  }
-  for (var i = 0; i < keysToDelete.length; i++) {
-    localStorage.removeItem(keysToDelete[i]);
-  }
+  // Clear out old password entries.
+  chrome.storage.local.get(null, function(hashes) {
+    Object.keys(hashes).forEach(function(hash) {
+      var storedSite = hashes[hash];
+      if (storedSite.site === site) {
+        chrome.storage.local.remove(hash);
+      }
+    });
+  });
 
   console.log('Saving password for: ' + email);
-  var item;
-  if (password in localStorage) {
-    item = JSON.parse(localStorage[password]);
-  } else {
-    item = {'length': length};
-  }
-  item['email'] = email;
-  item['date'] = new Date();
-
-  if (passwordalert.background.isNewInstall_) {
-    if (passwordalert.background.enterpriseMode_ &&
-        !passwordalert.background.shouldInitializePassword_) {
-      // If enterprise policy says not to prompt, then don't prompt.
-      passwordalert.background.isNewInstall_ = false;
-    } else {
-      var options = {
-        type: 'basic',
-        title: chrome.i18n.getMessage('extension_name'),
-        message: chrome.i18n.getMessage('initialization_thank_you_message'),
-        iconUrl: chrome.extension.getURL('logo_password_alert.png')
-      };
-      chrome.notifications.create('thank_you_notification',
-          options, function() {
-            passwordalert.background.isNewInstall_ = false;
-          });
+  chrome.storage.local.set(toStore, function () {
+    if (chrome.runtime.lastError) {
+      console.log('Password for ' + email + ' failed to save!');
     }
-  }
-
-  localStorage[password] = JSON.stringify(item);
-  delete passwordalert.background.possiblePassword_[tabId];
-  passwordalert.background.refreshPasswordLengths_();
+    else {
+      console.log('Password for ' + email + ' saved.');
+      if (passwordalert.background.isNewInstall_) {
+        if (passwordalert.background.isEnterpriseUse_
+            && !passwordalert.background.SITES_[site].shouldInitializePassword) {
+          // If enterprise policy says not to prompt, then don't prompt.
+          passwordalert.background.isNewInstall_ = false;
+        } else {
+          var options = {
+            type: 'basic',
+            title: chrome.i18n.getMessage('extension_name'),
+            message: chrome.i18n.getMessage('initialization_thank_you_message'),
+            iconUrl: chrome.extension.getURL('logo_password_alert.png')
+          };
+          chrome.notifications.create('thank_you_notification',
+              options, function () {
+                passwordalert.background.isNewInstall_ = false;
+              });
+        }
+      }
+      delete passwordalert.background.possiblePassword_[tabId];
+      passwordalert.background.refreshPasswordLengths_();
+    }
+  });
 };
 
 
@@ -836,12 +783,16 @@ passwordalert.background.savePossiblePassword_ = function(tabId) {
  */
 passwordalert.background.refreshPasswordLengths_ = function() {
   passwordalert.background.passwordLengths_ = [];
-  for (var i = 0; i < localStorage.length; i++) {
-    var item = passwordalert.background.getLocalStorageItem_(i);
-    if (item) {
-      passwordalert.background.passwordLengths_[item['length']] = true;
-    }
-  }
+  chrome.storage.local.get(null, function(hashes) {
+    Object.keys(hashes).forEach(function(hash) {
+      var site = hashes[hash];
+      passwordalert.background.passwordLengths_[site.length] = true;
+      passwordalert.background.MINIMUM_PASSWORD_ = Math.min(
+          passwordalert.background.MINIMUM_PASSWORD_,
+          site.length
+      );
+    });
+  });
   passwordalert.background.pushToAllTabs_();
 };
 
@@ -892,26 +843,34 @@ passwordalert.background.checkPassword_ = function(tabId, request, state) {
     return;
   }
 
-  var hash = passwordalert.background.hashPassword_(request.password);
-  if (localStorage[hash]) {
-    var item = JSON.parse(localStorage[hash]);
+  // todo: implement site ignores
+  var testString = request.password;
+  chrome.storage.local.get(null, function(hashes) {
+    Object.keys(hashes).some(function(hash) {
+      var item = hashes[hash];
+      var salt = item.salt;
+      var testHash = passwordalert.background.hashPassword_(testString, salt);
+      if (hash === testHash) {
+        console.log('PASSWORD TYPED! ' + request.url);
 
-    if (item['length'] == request.password.length) {
-      console.log('PASSWORD TYPED! ' + request.url);
+        if (passwordalert.background.SITES_[item.site]['reportURL']) {
+          passwordalert.background.sendReportPassword_(
+              request, item['email'], item['date'], false);
+        }
 
-      passwordalert.background.sendReportPassword_(
-          request, item['email'], item['date'], false);
+        console.log('Password has been typed.');
+        state['hash'] = hash;
+        state['otpCount'] = 0;
+        state['otpMode'] = true;
+        state['otpTime'] = new Date();
 
-      console.log('Password has been typed.');
-      state['hash'] = hash;
-      state['otpCount'] = 0;
-      state['otpMode'] = true;
-      state['otpTime'] = new Date();
+        passwordalert.background.injectPasswordWarningIfNeeded_(
+            request.url, item['email'], tabId);
 
-      passwordalert.background.injectPasswordWarningIfNeeded_(
-          request.url, item['email'], tabId);
-    }
-  }
+        return true;
+      }
+    });
+  });
 };
 
 
@@ -930,6 +889,7 @@ passwordalert.background.injectPasswordWarningIfNeeded_ =
     return;
   }
 
+  // todo: per-site host settings
   chrome.storage.local.get(
       passwordalert.background.ALLOWED_HOSTS_KEY_,
       function(result) {
@@ -1038,8 +998,14 @@ passwordalert.background.sendReport_ = function(
     console.log('Not in enterprise mode, so not sending a report.');
     return;
   }
+
+  // no report URL defined
+  if (!request.site.reportURL) {
+    console.log('No report URL provided');
+    return;
+  }
   var xhr = new XMLHttpRequest();
-  xhr.open('POST', passwordalert.background.report_url_ + path, true);
+  xhr.open('POST', request.site.reportURL + path, true);
   xhr.onreadystatechange = function() {};
   xhr.setRequestHeader('X-Same-Domain', 'true');
   xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -1063,10 +1029,6 @@ passwordalert.background.sendReport_ = function(
   }
   if (request.looksLikeGoogle) {
     data += '&looksLikeGoogle=true';
-  }
-  if (passwordalert.background.domain_auth_secret_) {
-    data += '&domain_auth_secret=' + encodeURIComponent(
-        passwordalert.background.domain_auth_secret_);
   }
   chrome.identity.getAuthToken({'interactive': false}, function(oauthToken) {
     if (oauthToken) {
@@ -1099,12 +1061,13 @@ passwordalert.background.guessUser_ = function() {
  * Calculates salted, partial hash of the password.
  * Throws an error if none is passed in.
  * @param {string} password The password to hash.
+ * @param {string} salt The password salt.
  * @return {string} Hash as a string of hex characters.
  * @private
  */
-passwordalert.background.hashPassword_ = function(password) {
+passwordalert.background.hashPassword_ = function(password, salt) {
   var sha1 = new goog.crypt.Sha1();
-  sha1.update(passwordalert.background.getHashSalt_());
+  sha1.update(salt);
   sha1.update(goog.crypt.stringToUtf8ByteArray(password));
   var hash = sha1.digest();
 
@@ -1134,15 +1097,11 @@ passwordalert.background.hashPassword_ = function(password) {
  * @return {string} Salt for the hash.
  * @private
  */
-passwordalert.background.getHashSalt_ = function() {
-  if (!(passwordalert.background.SALT_KEY_ in localStorage)) {
-    // Generate a salt and save it.
-    var salt = new Uint32Array(1);
-    window.crypto.getRandomValues(salt);
-    localStorage[passwordalert.background.SALT_KEY_] = salt[0].toString();
-  }
-
-  return localStorage[passwordalert.background.SALT_KEY_];
+passwordalert.background.generateSalt_ = function() {
+  // Generate a salt and save it.
+  var salt = new Uint32Array(1);
+  window.crypto.getRandomValues(salt);
+  return salt[0].toString();
 };
 
 
