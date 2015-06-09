@@ -32,7 +32,19 @@ goog.require('goog.string');
 goog.require('goog.uri.utils');
 
 
-passwordalert.SITES_ = {
+/**
+ * Object that holds configurations for specified websites.
+ * @public {object}
+ * @type {{siteName: {loginURL: RegExp, loginFormSelector: string,
+ *                    loginEmailSelector: string, secondFactorURL: RegExp,
+ *                    secondFactorFormSelector: string,
+ *                    changePasswordURL: string,
+ *                    changePasswordFormSelector: string,
+ *                    changePasswordName: string,
+ *                    securityEmailAddress: (string|undefined)}
+ *       }}
+ */
+passwordalert.SITES = {
   Facebook: {
     loginURL: /^https:\/\/[a-z\-]+\.facebook\.com(\/|\/login\.php)?$/,
     loginFormSelector: '#login_form',
@@ -146,7 +158,7 @@ passwordalert.setManagedPolicyValuesIntoConfigurableVariables_ =
               newPolicy[key] = value;
             }
           }
-          passwordalert.SITES_[policyName] = managedSite;
+          passwordalert.SITES[policyName] = managedSite;
         });
       }
       callback();
@@ -184,7 +196,7 @@ passwordalert.handleManagedPolicyChanges_ =
             console.log('Enterprise use enabled via updated managed policy.');
           }
 
-          passwordalert.SITES_[changedPolicy] =
+          passwordalert.SITES[changedPolicy] =
               changedPolicies[changedPolicy]['newValue'];
         });
       }
@@ -313,8 +325,8 @@ passwordalert.start_ = function(msg) {
     }
   }
 
-  Object.keys(passwordalert.SITES_).forEach(function(name) {
-    var site = passwordalert.SITES_[name];
+  Object.keys(passwordalert.SITES).forEach(function(name) {
+    var site = passwordalert.SITES[name];
 
     // todo: make "always ignore" whitelist a page if not disabled for site
     if ((passwordalert.pathMatch(passwordalert.url_, site.loginURL)

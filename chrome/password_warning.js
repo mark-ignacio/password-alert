@@ -20,6 +20,8 @@
  * @author adhintz@google.com (Drew Hintz)
  */
 
+goog.provide('passwordalert.warning');
+goog.require('passwordalert');
 
 // URI encoded parameters from the URL. [currentHost, email, tabId]
 var parameters = window.location.search.substr(1).split('&');
@@ -40,9 +42,9 @@ document.getElementById('always_ignore').textContent =
 
 
 document.getElementById('reset').onclick = function() {
-  var email = decodeURIComponent(parameters[1]);
-  window.location.href =
-      'https://accounts.google.com/b/' + email + '/EditPasswd';
+  var siteName = decodeURIComponent(parameters[3]);
+  var site = passwordalert.SITES[siteName];
+  window.location.href = site.changePasswordURL;
 };
 
 

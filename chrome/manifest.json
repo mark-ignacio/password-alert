@@ -16,7 +16,7 @@
 
   "web_accessible_resources": [
     "logo_password_alert.png",
-    "password_warning.js",
+    "password_warning_compiled.js",
     "phishing_warning.js",
     "warning.css"
   ],

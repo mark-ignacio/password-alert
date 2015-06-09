@@ -71,6 +71,7 @@ pc_build_extension() {
     jscompile_pc+=" --js='$var/**.js' --js='!$var/**_test.js'"
   done
   jscompile_pc+=" --js='./background.js'"
+  jscompile_pc+=" --js='./password_warning.js'"
   jscompile_pc+=" --js='./content_script.js'"
   jscompile_pc+=" --js='./keydown.js'"
 
@@ -81,6 +82,7 @@ pc_build_extension() {
   fi
   echo -n "." && $jscompile_pc --closure_entry_point "passwordalert.background" --js_output_file "$BUILD_EXT_DIR/background_compiled.js"
   echo -n "." && $jscompile_pc --closure_entry_point "passwordalert" --js_output_file "$BUILD_EXT_DIR/content_script_compiled.js"
+  echo -n "." && $jscompile_pc --closure_entry_point "passwordalert.warning" --js_output_file "$BUILD_EXT_DIR/password_warning_compiled.js"
   echo ""
 
   echo "Copying extension files..."
@@ -88,7 +90,7 @@ pc_build_extension() {
   cp -f *.png "$BUILD_EXT_DIR"
   cp -f *.json "$BUILD_EXT_DIR"
   cp -f *.css "$BUILD_EXT_DIR"
-  cp -f password_warning.* "$BUILD_EXT_DIR"
+  cp -f password_warning.html "$BUILD_EXT_DIR"
   cp -f phishing_warning.* "$BUILD_EXT_DIR"
   cp -fR _locales "$BUILD_EXT_DIR"
   echo "Done."
