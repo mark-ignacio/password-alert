@@ -230,7 +230,7 @@ passwordalert.pathMatch = function (url, toMatch) {
  * corporate login pages.
  * @private
  */
-passwordalert.completePageInitialization_ = function() {
+passwordalert.completePageInitializationIfReady_ = function() {
   // match page against each site's login pages
 
   var url;
@@ -242,60 +242,57 @@ passwordalert.completePageInitialization_ = function() {
     url = passwordalert.url_.slice(0, qIndex);
   }
 
-  // Due to selector usage, page detection must run on document ready.
-  document.addEventListener('DOMContentLoaded', function() {
-    Object.keys(passwordalert.SITES_).forEach(function (name) {
-      var site = passwordalert.SITES_[name];
-      console.log('Checking for site: ' + name);
-      if (passwordalert.pathMatch(url, site.changePasswordURL)
-          && document.querySelector(site.changePasswordFormSelector)) {
-        console.log('Password change page detected: ' + passwordalert.url_);
+  Object.keys(passwordalert.SITES_).forEach(function (name) {
+    var site = passwordalert.SITES_[name];
+    console.log('Checking for site: ' + name);
+    if (passwordalert.pathMatch(url, site.changePasswordURL)
+        && document.querySelector(site.changePasswordFormSelector)) {
+      console.log('Password change page detected: ' + passwordalert.url_);
 
-        // Logging into FB is possible with var email = any email or phone
-        // number, so let's just get whatever was entered in the first place.
-        chrome.runtime.sendMessage({site: name, action: 'getEmail'},
-            function (email) {
-              if (!email) return;
+      // Logging into FB is possible with var email = any email or phone
+      // number, so let's just get whatever was entered in the first place.
+      chrome.runtime.sendMessage({site: name, action: 'getEmail'},
+          function (email) {
+            if (!email) return;
 
-              var form = document.querySelector(
-                  site.changePasswordFormSelector);
-              form.addEventListener('submit', function () {
-                chrome.runtime.sendMessage({
-                  action: 'setPossiblePassword',
-                  site: name,
-                  email: email,
-                  password: form[site.changePasswordName]
-                });
+            var form = document.querySelector(
+                site.changePasswordFormSelector);
+            form.addEventListener('submit', function () {
+              chrome.runtime.sendMessage({
+                action: 'setPossiblePassword',
+                site: name,
+                email: email,
+                password: form[site.changePasswordName]
               });
-            }
-        );
-      }
-      else if (passwordalert.pathMatch(url, site.secondFactorURL)) {
-        console.log('Second factor URL detected: ' + passwordalert.url_);
+            });
+          }
+      );
+    }
+    else if (passwordalert.pathMatch(url, site.secondFactorURL)) {
+      console.log('Second factor URL detected: ' + passwordalert.url_);
 
-        // Password was typed in successfully if we're on the 2FA page.
-        chrome.runtime.sendMessage({
-          action: 'savePossiblePassword',
-          site: name
-        });
-      }
-      else if (passwordalert.pathMatch(url, site.loginURL)
-          && document.querySelector(site.loginFormSelector)) {
-        var loginForm = document.querySelector(site.loginFormSelector);
-        console.log('Login page detected: ' + passwordalert.url_);
+      // Password was typed in successfully if we're on the 2FA page.
+      chrome.runtime.sendMessage({
+        action: 'savePossiblePassword',
+        site: name
+      });
+    }
+    else if (passwordalert.pathMatch(url, site.loginURL)
+        && document.querySelector(site.loginFormSelector)) {
+      var loginForm = document.querySelector(site.loginFormSelector);
+      console.log('Login page detected: ' + passwordalert.url_);
 
-        loginForm.addEventListener('submit',
-            passwordalert.saveGaiaPassword_
-        );
-      }
-      else {
-        // todo: port phishing detection from upstream
-        chrome.runtime.sendMessage({
-          action: 'savePossiblePassword',
-          site: name
-        });
-      }
-    });
+      loginForm.addEventListener('submit',
+          passwordalert.saveGaiaPassword_
+      );
+    }
+    else {
+      // todo: port phishing detection from upstream
+      chrome.runtime.sendMessage({
+        action: 'savePossiblePassword',
+        site: name
+      });
+    }
   });
 
   chrome.runtime.sendMessage({action: 'statusRequest'}, function(response) {
