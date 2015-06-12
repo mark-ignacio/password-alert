@@ -35,14 +35,17 @@ goog.require('goog.uri.utils');
 /**
  * Object that holds configurations for specified websites.
  * @public {object}
- * @type {{siteName: {loginURL: RegExp, loginFormSelector: string,
- *                    loginEmailSelector: string, secondFactorURL: RegExp,
+ * @type {{siteName: {loginURL: (RegExp|string),
+  *                   loginFormSelector: string,
+ *                    loginEmailSelector: string,
+ *                    secondFactorURL: (RegExp|string),
  *                    secondFactorFormSelector: string,
  *                    changePasswordURL: string,
  *                    changePasswordFormSelector: string,
  *                    changePasswordName: string,
- *                    securityEmailAddress: (string|undefined)}
- *       }}
+ *                    corpHTML: string[],
+ *                    corpHTMLTight: string[]}
+ *      }}
  */
 passwordalert.SITES = {
   Facebook: {
@@ -55,7 +58,15 @@ passwordalert.SITES = {
     'tab=account&section=password&view',
     changePasswordFormSelector: 'form[action="/ajax/settings/account/password.php"]',
     changePasswordName: 'password_new',
-    securityEmailAddress: 'cert@fb.com'
+    corpHTML: [
+        '<title id="pageTitle">Welcome to Facebook - Log In, Sign Up or Learn More',
+        '<title id="pageTitle">Log into Facebook | Facebook'
+    ],
+    corpHTMLTight: [
+        '<div class="form_row clearfix"><label for="email" class="login_form_label">Email or Phone:</label>',
+        '<div class="rfloat _ohf"><h2 class="accessible_elem">Facebook Login</h2>',
+        '<input value="Log In" name="login" tabindex="1" type="submit" id="u_0_2" /></label></div><div id="register_link">or'
+    ]
   }
 };
 
@@ -285,6 +296,16 @@ passwordalert.completePageInitializationIfReady_ = function() {
       loginForm.addEventListener('submit',
           passwordalert.saveGaiaPassword_
       );
+    }
+    else if (site.corpHTMLTight
+        && passwordalert.looksLikeLoginPage_(site.corpHTMLTight)) {
+      console.log('Detected possible phishing page.');
+      chrome.runtime.sendMessage({
+        action: 'possiblePhish',
+        url: passwordalert.url_,
+        referer: document.referrer.toString(),
+        site: name
+      });
     }
     else {
       // todo: port phishing detection from upstream
@@ -566,48 +587,18 @@ passwordalert.validateSso_ = function() {
 
 
 /**
- * Detects if this page looks like a Google login page.
+ * Detects if this page looks like a login page.
  * For example, a phishing page would return true.
  * Cached so it only runs once per content_script load.
- * @return {boolean} True if this page looks like a Google login page.
+ * @param {Object} positives List of HTML snippets.
+ * @return {boolean} True if this page looks like a login page.
  * @private
  */
-passwordalert.looksLikeGooglePage_ = function() {
-  if (passwordalert.looks_like_google_ == true ||
-      passwordalert.looks_like_google_ == false) {
-    return passwordalert.looks_like_google_;
-  }
+passwordalert.looksLikeLoginPage_ = function(positives) {
   var allHtml = document.documentElement.innerHTML.slice(0, 100000);
-  for (var i in passwordalert.corp_html_) {
-    if (allHtml.indexOf(passwordalert.corp_html_[i]) >= 0) {
-      passwordalert.looks_like_google_ = true;
-      return true;
-    }
-  }
-  passwordalert.looks_like_google_ = false;
-  return false;
-};
-
-
-/**
- * Detects if this page looks like a Google login page, but with a more
- * strict set of rules to reduce false positives.
- * For example, a phishing page would return true.
- * @return {boolean} True if this page looks like a Google login page.
- * @private
- */
-passwordalert.looksLikeGooglePageTight_ = function() {
-  // Only look in the first 100,000 characters of a page to avoid
-  // impacting performance for large pages. Although an attacker could use this
-  // to avoid detection, they could obfuscate the HTML just as easily.
-  var allHtml = document.documentElement.innerHTML.slice(0, 100000);
-  for (var i in passwordalert.corp_html_tight_) {
-    if (allHtml.indexOf(passwordalert.corp_html_tight_[i]) >= 0) {
-      console.log('Looks like (tight) login page.');
-      return true;
-    }
-  }
-  return false;
+  return passwordalert.looks_like_google_ = positives.some(function(toMatch) {
+    return allHtml.indexOf(toMatch) !== -1;
+  });
 };
 
 

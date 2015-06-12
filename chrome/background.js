@@ -54,6 +54,7 @@ passwordalert.background.SITES_ = {
     displayUserAlert_: true,
     reportURL: undefined,
     shouldInitializePassword: true,
+    securityEmailAddress: 'phish@fb.com',
     minimumLength: 6
   }
 };
@@ -488,7 +489,7 @@ passwordalert.background.handleRequest_ = function(
       };
       sendResponse(JSON.stringify(state));  // Needed for pre-loaded pages.
       break;
-    case 'looksLikeGoogle':
+    case 'possiblePhish':
       passwordalert.background.sendReportPage_(request);
       passwordalert.background.injectPhishingWarningIfNeeded_(
           sender.tab.id, request);
@@ -921,26 +922,24 @@ passwordalert.background.injectPasswordWarningIfNeeded_ =
  */
 passwordalert.background.injectPhishingWarningIfNeeded_ = function(
     tabId, request) {
-  chrome.storage.local.get(
-      passwordalert.background.PHISHING_WARNING_WHITELIST_KEY_,
-      function(result) {
-        var toParse = document.createElement('a');
-        toParse.href = request.url;
-        var currentHost = toParse.origin;
-        var phishingWarningWhitelist =
-            result[passwordalert.background.PHISHING_WARNING_WHITELIST_KEY_];
-        if (phishingWarningWhitelist != undefined &&
-            phishingWarningWhitelist[currentHost]) {
-          return;
-        }
-        // TODO(adhintz) Change to named parameters.
-        var warning_url = chrome.extension.getURL('phishing_warning.html') +
-            '?' + tabId +
-            '&' + encodeURIComponent(request.url || '') +
-            '&' + encodeURIComponent(currentHost) +
-            '&' + encodeURIComponent(request.securityEmailAddress);
-        chrome.tabs.update({'url': warning_url});
-      });
+  chrome.storage.local.get(request.site, function(site) {
+    var toParse = document.createElement('a');
+    toParse.href = request.url;
+    var currentHost = toParse.origin;
+    var phishingWarningWhitelist = site['phishing_warning_whitelist'];
+    if (typeof phishingWarningWhitelist !== 'undefined' &&
+        phishingWarningWhitelist[currentHost]) {
+      return;
+    }
+
+    // TODO(adhintz) Change to named parameters.
+    var warning_url = chrome.extension.getURL('phishing_warning.html') +
+        '?' + tabId +
+        '&' + encodeURIComponent(request.url || '') +
+        '&' + encodeURIComponent(currentHost) +
+        '&' + encodeURIComponent(site.securityEmailAddress);
+    chrome.tabs.update({'url': warning_url});
+  });
 };
 
 
@@ -958,7 +957,6 @@ passwordalert.background.sendReportPassword_ = function(
     request, email, date, otp) {
   passwordalert.background.sendReport_(
       request,
-      email,
       date,
       otp,
       'password/');
@@ -974,7 +972,6 @@ passwordalert.background.sendReportPassword_ = function(
 passwordalert.background.sendReportPage_ = function(request) {
   passwordalert.background.sendReport_(
       request,
-      passwordalert.background.guessUser_(),
       '',  // date not used.
       false, // not an OTP alert.
       'page/');
@@ -985,7 +982,6 @@ passwordalert.background.sendReportPage_ = function(request) {
  * Sends an alert to the server if in Enterprise mode.
  * @param {passwordalert.background.Request_} request Request object from
  *     content_script. Contains url and referer.
- * @param {string} email The email to report.
  * @param {string} date The date when the correct password hash was saved.
  *                      It is a string from JavaScript's Date().
  * @param {boolean} otp True if this is for an OTP alert.
@@ -993,51 +989,57 @@ passwordalert.background.sendReportPage_ = function(request) {
  * @private
  */
 passwordalert.background.sendReport_ = function(
-    request, email, date, otp, path) {
+    request, date, otp, path) {
   if (!passwordalert.background.enterpriseMode_) {
     console.log('Not in enterprise mode, so not sending a report.');
     return;
   }
 
-  // no report URL defined
-  if (!request.site.reportURL) {
-    console.log('No report URL provided');
-    return;
-  }
-  var xhr = new XMLHttpRequest();
-  xhr.open('POST', request.site.reportURL + path, true);
-  xhr.onreadystatechange = function() {};
-  xhr.setRequestHeader('X-Same-Domain', 'true');
-  xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+  chrome.storage.local.get(request.site, function(site) {
+    // no report URL defined
+    if (!site.reportURL) {
+      console.log('No report URL provided');
+      return;
+    }
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', site.reportURL + path, true);
+    xhr.onreadystatechange = function() {};
 
-  // Turn 'example.com,1.example.com' into 'example.com'
-  var domain = passwordalert.background.corp_email_domain_.split(',')[0];
-  domain = domain.trim();
+    // this header is specifically for Google
+    xhr.setRequestHeader('X-Same-Domain', 'true');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
 
-  var data = (
+    // Turn 'example.com,1.example.com' into 'example.com'
+    var domain = site.emailDomain.split(',')[0];
+    domain = domain.trim();
+
+    var data = (
       'email=' + encodeURIComponent(email) +
       '&domain=' + encodeURIComponent(domain) +
       '&referer=' + encodeURIComponent(request.referer || '') +
       '&url=' + encodeURIComponent(request.url || '') +
-      '&version=' + chrome.runtime.getManifest().version);
-  if (date) {
-    // password_date is in seconds. Date.parse() returns milliseconds.
-    data += '&password_date=' + Math.floor(Date.parse(date) / 1000);
-  }
-  if (otp) {
-    data += '&otp=true';
-  }
-  if (request.looksLikeGoogle) {
-    data += '&looksLikeGoogle=true';
-  }
-  chrome.identity.getAuthToken({'interactive': false}, function(oauthToken) {
-    if (oauthToken) {
-      console.log('Successfully retrieved oauth token.');
-      data += '&oauth_token=' + encodeURIComponent(oauthToken);
+      '&version=' + chrome.runtime.getManifest().version
+    );
+    if (date) {
+      // password_date is in seconds. Date.parse() returns milliseconds.
+      data += '&password_date=' + Math.floor(Date.parse(date) / 1000);
     }
-    console.log('Sending alert to the server.');
-    xhr.send(data);
+    if (otp) {
+      data += '&otp=true';
+    }
+    if (request.looksLikeGoogle) {
+      data += '&looksLikeGoogle=true';
+    }
+    chrome.identity.getAuthToken({'interactive': false}, function(oauthToken) {
+      if (oauthToken) {
+        console.log('Successfully retrieved oauth token.');
+        data += '&oauth_token=' + encodeURIComponent(oauthToken);
+      }
+      console.log('Sending alert to the server.');
+      xhr.send(data);
+    });
   });
+
 };
 
 
@@ -1046,15 +1048,12 @@ passwordalert.background.sendReport_ = function(
  * @return {string} email address for this user. '' if none found.
  * @private
  */
-passwordalert.background.guessUser_ = function() {
-  for (var i = 0; i < localStorage.length; i++) {
-    var item = passwordalert.background.getLocalStorageItem_(i);
-    if (item && item['email']) {
-      return item['email'];
-    }
-  }
-  return passwordalert.background.signed_in_email_;
+passwordalert.background.guessUser_ = function(siteName) {
+  chrome.storage.local.get(siteName, function(site) {
+    return site.email;
+  });
 };
+
 
 
 /**
