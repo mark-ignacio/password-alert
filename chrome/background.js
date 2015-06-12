@@ -271,7 +271,7 @@ passwordalert.background.setManagedPolicyValuesIntoConfigurableVariables_ =
               newPolicy[key] = value;
             }
           }
-          passwordalert.SITES_[policyName] = managedSite;
+          passwordalert.background.SITES_[policyName] = managedSite;
         });
       }
       callback();

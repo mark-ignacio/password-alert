@@ -253,8 +253,8 @@ passwordalert.completePageInitializationIfReady_ = function() {
     url = passwordalert.url_.slice(0, qIndex);
   }
 
-  Object.keys(passwordalert.SITES_).forEach(function (name) {
-    var site = passwordalert.SITES_[name];
+  Object.keys(passwordalert.SITES).forEach(function (name) {
+    var site = passwordalert.SITES[name];
     console.log('Checking for site: ' + name);
     if (passwordalert.pathMatch(url, site.changePasswordURL)
         && document.querySelector(site.changePasswordFormSelector)) {
