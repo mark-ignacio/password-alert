@@ -48,6 +48,14 @@ passwordalert.background.SALT_KEY_ = 'salt';
 passwordalert.background.HASH_BITS_ = 37;
 
 
+/**
+ * Object that holds configurations for specified websites.
+ * @private
+ * @type {{Facebook: {loginURL: RegExp, loginInitURL: string, emailDomain:
+ *     undefined, displayUserAlert_: boolean, reportURL: undefined,
+ *     shouldInitializePassword: boolean, securityEmailAddress: string,
+ *     minimumLength: number, initialized: undefined}}}
+ */
 passwordalert.background.SITES_ = {
   Facebook: {
     loginURL: /^https:\/\/[a-z\-]+\.facebook\.com(\/|\/login\.php)?$/,
@@ -175,7 +183,7 @@ passwordalert.background.ENTER_ASCII_CODE_ = 13;
  * only defined for certain actions.
  * @typedef {{action: string, email: (string|undefined),
  *            password: (string|undefined), url: (string|undefined),
- *           looksLikeGoogle: (string|undefined), site: (string|undefined}}
+ *           looksLikeGoogle: (string|undefined), site: (string|undefined)}}
  * @private
  */
 passwordalert.background.Request_;
@@ -224,6 +232,7 @@ passwordalert.background.NOTIFICATION_ID_ =
  */
 passwordalert.background.ALLOWED_HOSTS_KEY_ = 'allowed_hosts';
 
+
 /**
  * Whether the extension was newly installed.
  * @private {boolean}
@@ -258,29 +267,29 @@ passwordalert.background.handleNewInstall_ = function(details) {
  * @private
  */
 passwordalert.background.setManagedPolicyValuesIntoConfigurableVariables_ =
-  function (callback) {
-    chrome.storage.managed.get(function (managedPolicy) {
-      if (Object.keys(managedPolicy).length == 0) {
-        passwordalert.isEnterpriseUse_ = false;
-      } else {
-        // nb: overwrites any existing policies
-        managedPolicy.forEach(function (managedSite) {
-          var newPolicy = {};
-          var policyName = managedSite['name'];
-          for (var key in managedSite) {
-            if (!managedSite.hasOwnProperty(key)) continue;
+    function(callback) {
+  chrome.storage.managed.get(function(managedPolicy) {
+    if (Object.keys(managedPolicy).length == 0) {
+      passwordalert.isEnterpriseUse_ = false;
+    } else {
+      // nb: overwrites any existing policies
+      managedPolicy.forEach(function(managedSite) {
+        var newPolicy = {};
+        var policyName = managedSite['name'];
+        for (var key in managedSite) {
+          if (!managedSite.hasOwnProperty(key)) continue;
 
-            // strings and regex only~
-            var value = managedSite[key];
-            if (typeof value === 'string' || value instanceof RegExp) {
-              newPolicy[key] = value;
-            }
+          // strings and regex only~
+          var value = managedSite[key];
+          if (typeof value === 'string' || value instanceof RegExp) {
+            newPolicy[key] = value;
           }
-          passwordalert.background.SITES_[policyName] = managedSite;
-        });
-      }
-      callback();
-    });
+        }
+        passwordalert.background.SITES_[policyName] = managedSite;
+      });
+    }
+    callback();
+  });
 };
 
 
@@ -301,18 +310,18 @@ passwordalert.background.setManagedPolicyValuesIntoConfigurableVariables_ =
  */
 passwordalert.background.handleManagedPolicyChanges_ =
     function(changedPolicies, storageNamespace) {
-      if (storageNamespace ==
-          passwordalert.background.MANAGED_STORAGE_NAMESPACE_) {
-        console.log('Handling changed policies.');
-        Object.keys(changedPolicies).forEach(function (changedPolicy) {
-          if (!passwordalert.background.isEnterpriseUse_) {
-            passwordalert.background.isEnterpriseUse_ = true;
-            console.log('Enterprise use enabled via updated managed policy.');
-          }
+  if (storageNamespace ===
+      passwordalert.background.MANAGED_STORAGE_NAMESPACE_) {
+    console.log('Handling changed policies.');
+    Object.keys(changedPolicies).forEach(function(changedPolicy) {
+      if (!passwordalert.background.isEnterpriseUse_) {
+        passwordalert.background.isEnterpriseUse_ = true;
+        console.log('Enterprise use enabled via updated managed policy.');
+      }
 
-          passwordalert.background.SITES_[changedPolicy] =
-              changedPolicies[changedPolicy]['newValue'];
-        });
+      passwordalert.background.SITES_[changedPolicy] =
+          changedPolicies[changedPolicy]['newValue'];
+    });
   }
 };
 
@@ -332,7 +341,6 @@ passwordalert.background.injectContentScriptIntoAllTabs_ =
     function(callback) {
   chrome.tabs.query({}, function(tabs) {
     for (var i = 0; i < tabs.length; i++) {
-      var tabIdentifier = tabs[i].id + ' - ' + tabs[i].url;
       // Skip chrome:// and chrome-devtools:// pages
       if (tabs[i].url.lastIndexOf('chrome', 0) != 0) {
         chrome.tabs.executeScript(tabs[i].id,
@@ -412,10 +420,10 @@ passwordalert.background.displayInitializePasswordNotification_ = function() {
 passwordalert.background.initializePasswordIfReady_ = function() {
   if (!passwordalert.background.isNewInstall_ ||
       !passwordalert.background.isInitialized_) {
-        return;
+    return;
   }
   var needsInit = Object.keys(passwordalert.background.SITES_).some(
-      function (siteName) {
+      function(siteName) {
         var site = passwordalert.background.SITES_[siteName];
         if (site.shouldInitializePassword) {
           return true;
@@ -776,7 +784,7 @@ passwordalert.background.savePossiblePassword_ = function(tabId, request) {
   });
 
   console.log('Saving password for: ' + email);
-  chrome.storage.local.set(toStore, function () {
+  chrome.storage.local.set(toStore, function() {
     if (chrome.runtime.lastError) {
       console.log('Password for ' + email + ' failed to save!');
     }
@@ -784,8 +792,8 @@ passwordalert.background.savePossiblePassword_ = function(tabId, request) {
       passwordalert.background.SITES_.initialized = true;
       console.log('Password for ' + email + ' saved.');
       if (passwordalert.background.isNewInstall_) {
-        if (passwordalert.background.isEnterpriseUse_
-            && !passwordalert.background.SITES_[site].shouldInitializePassword) {
+        if (passwordalert.background.isEnterpriseUse_ &&
+            !passwordalert.background.SITES_[site].shouldInitializePassword) {
           // If enterprise policy says not to prompt, then don't prompt.
           passwordalert.background.isNewInstall_ = false;
         } else {
@@ -796,7 +804,7 @@ passwordalert.background.savePossiblePassword_ = function(tabId, request) {
             iconUrl: chrome.extension.getURL('logo_password_alert.png')
           };
           chrome.notifications.create('thank_you_notification',
-              options, function () {
+              options, function() {
                 passwordalert.background.isNewInstall_ = false;
               });
         }
@@ -822,8 +830,7 @@ passwordalert.background.refreshPasswordLengths_ = function() {
       passwordalert.background.passwordLengths_[site.length] = true;
       passwordalert.background.MINIMUM_PASSWORD_ = Math.min(
           passwordalert.background.MINIMUM_PASSWORD_,
-          site.length
-      );
+          site.length);
     });
   });
   passwordalert.background.pushToAllTabs_();
@@ -847,12 +854,8 @@ passwordalert.background.checkRateLimit_ = function() {
 
   passwordalert.background.rateLimitCount_++;
 
-  if (passwordalert.background.rateLimitCount_ <=
-      passwordalert.background.MAX_RATE_PER_HOUR_) {
-    return true;
-  } else {
-    return false;  // rate exceeded
-  }
+  return passwordalert.background.rateLimitCount_ <=
+      passwordalert.background.MAX_RATE_PER_HOUR_;
 };
 
 
@@ -1047,12 +1050,12 @@ passwordalert.background.sendReport_ = function(
     domain = domain.trim();
 
     var data = (
-      'email=' + encodeURIComponent(email) +
-      '&domain=' + encodeURIComponent(domain) +
-      '&referer=' + encodeURIComponent(request.referer || '') +
-      '&url=' + encodeURIComponent(request.url || '') +
-      '&version=' + chrome.runtime.getManifest().version
-    );
+        'email=' + encodeURIComponent(email) +
+        '&domain=' + encodeURIComponent(domain) +
+        '&referer=' + encodeURIComponent(request.referer || '') +
+        '&url=' + encodeURIComponent(request.url || '') +
+        '&version=' + chrome.runtime.getManifest().version
+        );
     if (date) {
       // password_date is in seconds. Date.parse() returns milliseconds.
       data += '&password_date=' + Math.floor(Date.parse(date) / 1000);
@@ -1079,7 +1082,8 @@ passwordalert.background.sendReport_ = function(
 
 /**
  * Guesses the email address for the current user.
- * @return {string} email address for this user. '' if none found.
+ * @param {string} siteName Website corresponding to user
+ * @return {string|undefined} email address for this user or undefined.
  * @private
  */
 passwordalert.background.guessUser_ = function(siteName) {
@@ -1087,7 +1091,6 @@ passwordalert.background.guessUser_ = function(siteName) {
     return site.email;
   });
 };
-
 
 
 /**

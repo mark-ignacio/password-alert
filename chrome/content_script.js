@@ -36,7 +36,7 @@ goog.require('goog.uri.utils');
  * Object that holds configurations for specified websites.
  * @public {object}
  * @type {{siteName: {loginURL: (RegExp|string),
-  *                   loginFormSelector: string,
+ *                    loginFormSelector: string,
  *                    loginEmailSelector: string,
  *                    secondFactorURL: (RegExp|string),
  *                    secondFactorFormSelector: string,
@@ -55,17 +55,18 @@ passwordalert.SITES = {
     secondFactorURL: /^https:\/\/[a-z\-]+\.facebook\.com\/checkpoint\/?$/,
     secondFactorFormSelector: 'form.checkpoint',
     changePasswordURL: 'https://www.facebook.com/settings?' +
-    'tab=account&section=password&view',
-    changePasswordFormSelector: 'form[action="/ajax/settings/account/password.php"]',
+        'tab=account&section=password&view',
+    changePasswordFormSelector:
+        'form[action="/ajax/settings/account/password.php"]',
     changePasswordName: 'password_new',
     corpHTML: [
-        '<title id="pageTitle">Welcome to Facebook - Log In, Sign Up or Learn More',
-        '<title id="pageTitle">Log into Facebook | Facebook'
+      '<title id="pageTitle">Welcome to Facebook - Log In, Sign Up or Learn More',
+      '<title id="pageTitle">Log into Facebook | Facebook'
     ],
     corpHTMLTight: [
-        '<div class="form_row clearfix"><label for="email" class="login_form_label">Email or Phone:</label>',
-        '<div class="rfloat _ohf"><h2 class="accessible_elem">Facebook Login</h2>',
-        '<input value="Log In" name="login" tabindex="1" type="submit" id="u_0_2" /></label></div><div id="register_link">or'
+      '<div class="form_row clearfix"><label for="email" class="login_form_label">Email or Phone:</label>',
+      '<div class="rfloat _ohf"><h2 class="accessible_elem">Facebook Login</h2>',
+      '<input value="Log In" name="login" tabindex="1" type="submit" id="u_0_2" /></label></div><div id="register_link">or'
     ]
   }
 };
@@ -77,6 +78,7 @@ passwordalert.SITES = {
  * @const
  */
 passwordalert.MANAGED_STORAGE_NAMESPACE_ = 'managed';
+
 
 /**
  * The URL for the current page.
@@ -151,29 +153,29 @@ passwordalert.ALLOWED_HOSTS_KEY_ = 'allowed_hosts';
  * @private
  */
 passwordalert.setManagedPolicyValuesIntoConfigurableVariables_ =
-  function (callback) {
-    chrome.storage.managed.get(function (managedPolicy) {
-      if (Object.keys(managedPolicy).length == 0) {
-        passwordalert.isEnterpriseUse_ = false;
-      } else {
-        // nb: overwrites existing policies
-        managedPolicy.forEach(function (managedSite) {
-          var newPolicy = {};
-          var policyName = managedSite['name'];
-          for (var key in managedSite) {
-            if (!managedSite.hasOwnProperty(key)) continue;
+    function(callback) {
+  chrome.storage.managed.get(function(managedPolicy) {
+    if (Object.keys(managedPolicy).length == 0) {
+      passwordalert.isEnterpriseUse_ = false;
+    } else {
+      // nb: overwrites existing policies
+      managedPolicy.forEach(function(managedSite) {
+        var newPolicy = {};
+        var policyName = managedSite['name'];
+        for (var key in managedSite) {
+          if (!managedSite.hasOwnProperty(key)) continue;
 
-            // strings and regex only~
-            var value = managedSite[key];
-            if (typeof value === 'string' || value instanceof RegExp) {
-              newPolicy[key] = value;
-            }
+          // strings and regex only~
+          var value = managedSite[key];
+          if (typeof value === 'string' || value instanceof RegExp) {
+            newPolicy[key] = value;
           }
-          passwordalert.SITES[policyName] = managedSite;
-        });
-      }
-      callback();
-    });
+        }
+        passwordalert.SITES[policyName] = managedSite;
+      });
+    }
+    callback();
+  });
 };
 
 
@@ -198,28 +200,28 @@ passwordalert.setManagedPolicyValuesIntoConfigurableVariables_ =
  */
 passwordalert.handleManagedPolicyChanges_ =
     function(changedPolicies, storageNamespace) {
-      if (storageNamespace ==
-          passwordalert.MANAGED_STORAGE_NAMESPACE_) {
-        console.log('Handling changed policies.');
-        Object.keys(changedPolicies).forEach(function (changedPolicy) {
-          if (!passwordalert.isEnterpriseUse_) {
-            passwordalert.isEnterpriseUse_ = true;
-            console.log('Enterprise use enabled via updated managed policy.');
-          }
-
-          passwordalert.SITES[changedPolicy] =
-              changedPolicies[changedPolicy]['newValue'];
-        });
+  if (storageNamespace == passwordalert.MANAGED_STORAGE_NAMESPACE_) {
+    console.log('Handling changed policies.');
+    Object.keys(changedPolicies).forEach(function(changedPolicy) {
+      if (!passwordalert.isEnterpriseUse_) {
+        passwordalert.isEnterpriseUse_ = true;
+        console.log('Enterprise use enabled via updated managed policy.');
       }
-    };
+
+      passwordalert.SITES[changedPolicy] =
+          changedPolicies[changedPolicy]['newValue'];
+    });
+  }
+};
+
 
 /**
  * Checks only up to the path of a URL against a regexp or string.
  * @param {string} url
  * @param {string|RegExp} toMatch
- * @return bool
+ * @return {boolean}
  */
-passwordalert.pathMatch = function (url, toMatch) {
+passwordalert.pathMatch = function(url, toMatch) {
   var questionIndex = url.indexOf('?');
   if (questionIndex != -1) {
     url = url.slice(0, questionIndex);
@@ -253,22 +255,22 @@ passwordalert.completePageInitializationIfReady_ = function() {
     url = passwordalert.url_.slice(0, qIndex);
   }
 
-  Object.keys(passwordalert.SITES).forEach(function (name) {
+  Object.keys(passwordalert.SITES).forEach(function(name) {
     var site = passwordalert.SITES[name];
     console.log('Checking for site: ' + name);
-    if (passwordalert.pathMatch(url, site.changePasswordURL)
-        && document.querySelector(site.changePasswordFormSelector)) {
+    if (passwordalert.pathMatch(url, site.changePasswordURL) &&
+        document.querySelector(site.changePasswordFormSelector)) {
       console.log('Password change page detected: ' + passwordalert.url_);
 
       // Logging into FB is possible with var email = any email or phone
       // number, so let's just get whatever was entered in the first place.
       chrome.runtime.sendMessage({site: name, action: 'getEmail'},
-          function (email) {
+          function(email) {
             if (!email) return;
 
             var form = document.querySelector(
                 site.changePasswordFormSelector);
-            form.addEventListener('submit', function () {
+            form.addEventListener('submit', function() {
               chrome.runtime.sendMessage({
                 action: 'setPossiblePassword',
                 site: name,
@@ -288,8 +290,8 @@ passwordalert.completePageInitializationIfReady_ = function() {
         site: name
       });
     }
-    else if (passwordalert.pathMatch(url, site.loginURL)
-        && document.querySelector(site.loginFormSelector)) {
+    else if (passwordalert.pathMatch(url, site.loginURL) &&
+        document.querySelector(site.loginFormSelector)) {
       var loginForm = document.querySelector(site.loginFormSelector);
       console.log('Login page detected: ' + passwordalert.url_);
 
@@ -297,8 +299,8 @@ passwordalert.completePageInitializationIfReady_ = function() {
           passwordalert.saveGaiaPassword_(name)
       );
     }
-    else if (site.corpHTMLTight
-        && passwordalert.looksLikeLoginPage_(site.corpHTMLTight)) {
+    else if (site.corpHTMLTight &&
+        passwordalert.looksLikeLoginPage_(site.corpHTMLTight)) {
       console.log('Detected possible phishing page.');
       chrome.runtime.sendMessage({
         action: 'possiblePhish',
@@ -347,9 +349,9 @@ passwordalert.start_ = function(msg) {
     var site = passwordalert.SITES[name];
 
     // todo: make "always ignore" whitelist a page if not disabled for site
-    if ((passwordalert.pathMatch(passwordalert.url_, site.loginURL)
-          && document.querySelector(site.loginFormSelector))
-        || passwordalert.pathMatch(passwordalert.url_, site.secondFactorURL)) {
+    if ((passwordalert.pathMatch(passwordalert.url_, site.loginURL) &&
+        document.querySelector(site.loginFormSelector)) ||
+        passwordalert.pathMatch(passwordalert.url_, site.secondFactorURL)) {
       chrome.runtime.sendMessage({
         action: 'whitelisted',
         site: name
@@ -486,8 +488,9 @@ passwordalert.saveSsoPassword_ = function(evt) {
 /**
  * Called when the GAIA page is submitted. Sends possible
  * password to background.js.
- * @param name {string} Site name for request.
+ * @param {string} name Site name for request.
  * @private
+ * @return {undefined}
  */
 passwordalert.saveGaiaPassword_ = function(name) {
   return function(evt) {
