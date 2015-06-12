@@ -42,7 +42,7 @@ document.getElementById('always_ignore').textContent =
 
 
 document.getElementById('reset').onclick = function() {
-  var siteName = decodeURIComponent(parameters[3]);
+  var siteName = decodeURIComponent(parameters[1]);
   var site = passwordalert.SITES[siteName];
   window.location.href = site.changePasswordURL;
 };

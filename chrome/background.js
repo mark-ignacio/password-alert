@@ -50,12 +50,17 @@ passwordalert.background.HASH_BITS_ = 37;
 
 passwordalert.background.SITES_ = {
   Facebook: {
+    loginURL: /^https:\/\/[a-z\-]+\.facebook\.com(\/|\/login\.php)?$/,
+    loginInitURL: 'https://www.facebook.com/',
     emailDomain: undefined,
     displayUserAlert_: true,
     reportURL: undefined,
     shouldInitializePassword: true,
     securityEmailAddress: 'phish@fb.com',
-    minimumLength: 6
+    minimumLength: 6,
+
+    // Not config defined; this is used for the initialization notification.
+    initialized: undefined
   }
 };
 
@@ -355,10 +360,25 @@ passwordalert.background.displayInitializePasswordNotification_ = function() {
       chrome.notifications.update(passwordalert.background.NOTIFICATION_ID_,
           {priority: 2}, function() {});
     } else {
+      var siteNames = [];
+      var loginURLs = [];
+      Object.keys(passwordalert.background.SITES_).forEach(function(siteName) {
+        var site = passwordalert.background.SITES_[siteName];
+        siteNames.push(siteName);
+        if (!site.initialized) {
+          if (site.loginURL instanceof RegExp) {
+            loginURLs.push(site.loginInitURL);
+          }
+          else {
+            loginURLs.push(site.loginURL);
+          }
+        }
+      });
+      siteNames = siteNames.join(', ');
       var options = {
         type: 'basic',
         priority: 1,
-        title: chrome.i18n.getMessage('extension_name'),
+        title: chrome.i18n.getMessage('extension_name') + ' - ' + siteNames,
         message: chrome.i18n.getMessage('initialization_message'),
         iconUrl: chrome.extension.getURL('logo_password_alert.png'),
         buttons: [{
@@ -369,9 +389,10 @@ passwordalert.background.displayInitializePasswordNotification_ = function() {
           options, function() {});
       var openLoginPage_ = function(notificationId) {
         if (notificationId === passwordalert.background.NOTIFICATION_ID_) {
-          chrome.tabs.create({'url':
-                'https://accounts.google.com/ServiceLogin?' +
-                'continue=https://www.google.com'});
+          loginURLs.forEach(function(url) {
+            console.log('Opening ' + url);
+            chrome.tabs.create({'url': url});
+          });
         }
       };
       // If a user clicks on the non-button area of the notification,
@@ -389,15 +410,22 @@ passwordalert.background.displayInitializePasswordNotification_ = function() {
  * @private
  */
 passwordalert.background.initializePasswordIfReady_ = function() {
-  // todo: batch requests for password initialization
   if (!passwordalert.background.isNewInstall_ ||
       !passwordalert.background.isInitialized_) {
+        return;
+  }
+  var needsInit = Object.keys(passwordalert.background.SITES_).some(
+      function (siteName) {
+        var site = passwordalert.background.SITES_[siteName];
+        if (site.shouldInitializePassword) {
+          return true;
+        }
+      });
+
+  if (!needsInit) {
     return;
   }
-  if (passwordalert.background.enterpriseMode_ &&
-      !passwordalert.background.shouldInitializePassword_) {
-    return;
-  }
+
   // For OS X, we add a delay that will give the user a chance to dismiss
   // the webstore's post-install popup.  Otherwise, there will be an overlap
   // between this popup and the chrome.notification message.
@@ -673,9 +701,10 @@ passwordalert.background.setPossiblePassword_ = function(tabId, request) {
   if (!request.email || !request.password) {
     return;
   }
-  if (request.password.length < passwordalert.background.MINIMUM_PASSWORD_) {
+  var site = passwordalert.background.SITES_[request.site];
+  if (request.password.length < site.minimumLength) {
     console.log('password length is shorter than the minimum of ' +
-        passwordalert.background.MINIMUM_PASSWORD_);
+        site.minimumLength);
     return;
   }
 
@@ -738,6 +767,7 @@ passwordalert.background.savePossiblePassword_ = function(tabId, request) {
   // Clear out old password entries.
   chrome.storage.local.get(null, function(hashes) {
     Object.keys(hashes).forEach(function(hash) {
+      if (hash === passwordalert.background.ALLOWED_HOSTS_KEY_) return;
       var storedSite = hashes[hash];
       if (storedSite.site === site) {
         chrome.storage.local.remove(hash);
@@ -751,6 +781,7 @@ passwordalert.background.savePossiblePassword_ = function(tabId, request) {
       console.log('Password for ' + email + ' failed to save!');
     }
     else {
+      passwordalert.background.SITES_.initialized = true;
       console.log('Password for ' + email + ' saved.');
       if (passwordalert.background.isNewInstall_) {
         if (passwordalert.background.isEnterpriseUse_
@@ -786,6 +817,7 @@ passwordalert.background.refreshPasswordLengths_ = function() {
   passwordalert.background.passwordLengths_ = [];
   chrome.storage.local.get(null, function(hashes) {
     Object.keys(hashes).forEach(function(hash) {
+      if (hash === passwordalert.background.ALLOWED_HOSTS_KEY_) return;
       var site = hashes[hash];
       passwordalert.background.passwordLengths_[site.length] = true;
       passwordalert.background.MINIMUM_PASSWORD_ = Math.min(
@@ -848,6 +880,7 @@ passwordalert.background.checkPassword_ = function(tabId, request, state) {
   var testString = request.password;
   chrome.storage.local.get(null, function(hashes) {
     Object.keys(hashes).some(function(hash) {
+      if (hash === passwordalert.background.ALLOWED_HOSTS_KEY_) return;
       var item = hashes[hash];
       var salt = item.salt;
       var testHash = passwordalert.background.hashPassword_(testString, salt);
@@ -866,7 +899,7 @@ passwordalert.background.checkPassword_ = function(tabId, request, state) {
         state['otpTime'] = new Date();
 
         passwordalert.background.injectPasswordWarningIfNeeded_(
-            request.url, item['email'], tabId);
+            request.url, item.site, tabId);
 
         return true;
       }
@@ -878,13 +911,13 @@ passwordalert.background.checkPassword_ = function(tabId, request, state) {
 /**
  * Check if the password warning banner should be injected and inject it.
  * @param {string|undefined} url URI that triggered this warning.
- * @param {string} email Email address that triggered this warning.
+ * @param {string} siteName Site name that triggered this warning.
  * @param {number} tabId The tab that sent this message.
  *
  * @private
  */
 passwordalert.background.injectPasswordWarningIfNeeded_ =
-    function(url, email, tabId) {
+    function(url, siteName, tabId) {
   if (passwordalert.background.enterpriseMode_ &&
       !passwordalert.background.displayUserAlert_) {
     return;
@@ -904,7 +937,7 @@ passwordalert.background.injectPasswordWarningIfNeeded_ =
         // TODO(adhintz) Change to named parameters.
         var warning_url = chrome.extension.getURL('password_warning.html') +
             '?' + encodeURIComponent(currentHost) +
-            '&' + encodeURIComponent(email) +
+            '&' + encodeURIComponent(siteName) +
             '&' + tabId;
         chrome.tabs.create({'url': warning_url});
       });

@@ -294,7 +294,7 @@ passwordalert.completePageInitializationIfReady_ = function() {
       console.log('Login page detected: ' + passwordalert.url_);
 
       loginForm.addEventListener('submit',
-          passwordalert.saveGaiaPassword_
+          passwordalert.saveGaiaPassword_(name)
       );
     }
     else if (site.corpHTMLTight
@@ -486,26 +486,29 @@ passwordalert.saveSsoPassword_ = function(evt) {
 /**
  * Called when the GAIA page is submitted. Sends possible
  * password to background.js.
- * @param {Event} evt Form submit event that triggered this. Not used.
+ * @param name {string} Site name for request.
  * @private
  */
-passwordalert.saveGaiaPassword_ = function(evt) {
-  console.log('Saving login password.');
-  //TODO(adhintz) Should we do any validation here?
-  var loginForm = evt.target;
-  var email = loginForm.email ?
-      goog.string.trim(loginForm.email.value.toLowerCase()) : '';
-  var password = loginForm.pass ? loginForm.pass.value : '';
-  if ((passwordalert.isEnterpriseUse_ &&
-      !passwordalert.isEmailInDomain_(email)) ||
-      goog.string.isEmptyString(goog.string.makeSafe(password))) {
-    return;  // Ignore generic @gmail.com logins or for other domains.
+passwordalert.saveGaiaPassword_ = function(name) {
+  return function(evt) {
+    console.log('Saving login password.');
+    //TODO(adhintz) Should we do any validation here?
+    var loginForm = evt.target;
+    var email = loginForm.email ?
+        goog.string.trim(loginForm.email.value.toLowerCase()) : '';
+    var password = loginForm.pass ? loginForm.pass.value : '';
+    if ((passwordalert.isEnterpriseUse_ &&
+        !passwordalert.isEmailInDomain_(email)) ||
+        goog.string.isEmptyString(goog.string.makeSafe(password))) {
+      return;  // Ignore generic @gmail.com logins or for other domains.
+    }
+    chrome.runtime.sendMessage({
+      action: 'setPossiblePassword',
+      site: name,
+      email: email,
+      password: password
+    });
   }
-  chrome.runtime.sendMessage({
-    action: 'setPossiblePassword',
-    email: email,
-    password: password
-  });
 };
 
 
