@@ -359,8 +359,6 @@ passwordalert.start_ = function(msg) {
       passwordalert.isRunning_ = true;
     }
   });
-
-  passwordalert.looksLikeGooglePage_();  // Run here so that it's cached.
 };
 
 
@@ -397,8 +395,7 @@ passwordalert.handleKeypress_ = function(evt) {
     keyCode: evt.charCode,
     typedTimeStamp: evt.timeStamp,
     url: passwordalert.url_,
-    referer: document.referrer.toString(),
-    looksLikeGoogle: passwordalert.looksLikeGooglePage_()
+    referer: document.referrer.toString()
   });
 };
 
@@ -428,8 +425,7 @@ passwordalert.handleKeydown_ = function(evt) {
     shiftKey: evt.shiftKey,
     typedTimeStamp: evt.timeStamp,
     url: passwordalert.url_,
-    referer: document.referrer.toString(),
-    looksLikeGoogle: passwordalert.looksLikeGooglePage_()
+    referer: document.referrer.toString()
   });
 };
 
@@ -457,8 +453,7 @@ passwordalert.handlePaste_ = function(evt) {
     action: 'checkString',
     password: evt.clipboardData.getData('text/plain').trim(),
     url: passwordalert.url_,
-    referer: document.referrer.toString(),
-    looksLikeGoogle: passwordalert.looksLikeGooglePage_()
+    referer: document.referrer.toString()
   });
 };
 

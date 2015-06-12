@@ -1027,6 +1027,7 @@ passwordalert.background.sendReport_ = function(
     if (otp) {
       data += '&otp=true';
     }
+    // todo: address dead (?) phishing code here
     if (request.looksLikeGoogle) {
       data += '&looksLikeGoogle=true';
     }
