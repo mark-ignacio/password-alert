@@ -29,6 +29,7 @@ goog.provide('passwordalert.background');
 
 goog.require('goog.crypt');
 goog.require('goog.crypt.Sha1');
+goog.require('goog.uri.utils');
 goog.require('passwordalert.keydown.Typed');
 
 
@@ -769,6 +770,7 @@ passwordalert.background.savePossiblePassword_ = function(tabId, request) {
     email: email,
     site: site,
     length: length,
+    alwaysIgnore: {},
     date: new Date()
   };
 
@@ -879,7 +881,6 @@ passwordalert.background.checkPassword_ = function(tabId, request, state) {
     return;
   }
 
-  // todo: implement site ignores
   var testString = request.password;
   chrome.storage.local.get(null, function(hashes) {
     Object.keys(hashes).some(function(hash) {
@@ -902,7 +903,7 @@ passwordalert.background.checkPassword_ = function(tabId, request, state) {
         state['otpTime'] = new Date();
 
         passwordalert.background.injectPasswordWarningIfNeeded_(
-            request.url, item.site, tabId);
+            request.url, item, tabId);
 
         return true;
       }
@@ -914,37 +915,29 @@ passwordalert.background.checkPassword_ = function(tabId, request, state) {
 /**
  * Check if the password warning banner should be injected and inject it.
  * @param {string|undefined} url URI that triggered this warning.
- * @param {string} siteName Site name that triggered this warning.
+ * @param {Object} site Site storage object that triggered this warning.
  * @param {number} tabId The tab that sent this message.
  *
  * @private
  */
 passwordalert.background.injectPasswordWarningIfNeeded_ =
-    function(url, siteName, tabId) {
+    function(url, site, tabId) {
   if (passwordalert.background.enterpriseMode_ &&
       !passwordalert.background.displayUserAlert_) {
     return;
   }
 
-  // todo: per-site host settings
-  chrome.storage.local.get(
-      passwordalert.background.ALLOWED_HOSTS_KEY_,
-      function(result) {
-        var toParse = document.createElement('a');
-        toParse.href = url;
-        var currentHost = toParse.origin;
-        var allowedHosts = result[passwordalert.background.ALLOWED_HOSTS_KEY_];
-        if (allowedHosts != undefined && allowedHosts[currentHost]) {
-          return;
-        }
-        // TODO(adhintz) Change to named parameters.
-        var warning_url = chrome.extension.getURL('password_warning.html') +
-            '?' + encodeURIComponent(currentHost) +
-            '&' + encodeURIComponent(siteName) +
-            '&' + tabId;
-        chrome.tabs.create({'url': warning_url});
-      });
-
+  var host = goog.uri.utils.getHost(url);
+  var skip = Object.keys(site.alwaysIgnore).some(function(whitelisted) {
+    return host === whitelisted;
+  });
+  if (!skip) {
+    var warning_url = chrome.extension.getURL('password_warning.html') +
+        '?' + encodeURIComponent(host) +
+        '&' + encodeURIComponent(site.site) +
+        '&' + tabId;
+    chrome.tabs.create({'url': warning_url});
+  }
 };
 
 
@@ -1163,7 +1156,7 @@ passwordalert.background.pushToTab_ = function(tabId) {
   var state = {
     passwordLengths: passwordalert.background.passwordLengths_
   };
-  chrome.tabs.sendMessage(tabId, JSON.stringify(state));
+  chrome.tabs.sendMessage(tabId, state);
 };
 
 

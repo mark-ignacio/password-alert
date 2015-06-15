@@ -329,12 +329,10 @@ passwordalert.completePageInitializationIfReady_ = function() {
 /**
  * Sets variables to enable watching for passwords being typed. Called when
  * a message from the options_subscriber arrives.
- * @param {string} msg JSON object containing password lengths and OTP mode.
+ * @param {string} state object containing password lengths and OTP mode.
  * @private
  */
-passwordalert.start_ = function(msg) {
-  var state = JSON.parse(msg);
-
+passwordalert.start_ = function(state) {
   if (state.passwordLengths) {
     // TODO(henryc): Content_script is now only using passwordLengths_ to tell
     // if passwordLengths_length == 0. So, do not store passwordLengths,
@@ -349,10 +347,14 @@ passwordalert.start_ = function(msg) {
   Object.keys(passwordalert.SITES).forEach(function(name) {
     var site = passwordalert.SITES[name];
 
-    // todo: make "always ignore" whitelist a page if not disabled for site
-    if ((passwordalert.pathMatch_(passwordalert.url_, site.loginURL) &&
-        document.querySelector(site.loginFormSelector)) ||
-        passwordalert.pathMatch_(passwordalert.url_, site.secondFactorURL)) {
+    var isLoginPage = (
+        passwordalert.pathMatch_(passwordalert.url_, site.loginURL) &&
+        document.querySelector(site.loginFormSelector));
+    var isSecondFactorURL =
+        passwordalert.pathMatch_(passwordalert.url_, site.secondFactorURL);
+
+    // safe URL, so no need to watch it... for this site
+    if (isLoginPage || isSecondFactorURL) {
       chrome.runtime.sendMessage({
         action: 'whitelisted',
         site: name

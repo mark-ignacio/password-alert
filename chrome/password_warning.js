@@ -25,6 +25,7 @@ goog.require('passwordalert');
 
 // URI encoded parameters from the URL. [currentHost, email, tabId]
 var parameters = window.location.search.substr(1).split('&');
+var siteName = decodeURIComponent(parameters[1]);
 
 document.getElementById('warning_banner_header').textContent =
     chrome.i18n.getMessage('password_warning_banner_header');
@@ -42,7 +43,6 @@ document.getElementById('always_ignore').textContent =
 
 
 document.getElementById('reset').onclick = function() {
-  var siteName = decodeURIComponent(parameters[1]);
   var site = passwordalert.SITES[siteName];
   window.location.href = site.changePasswordURL;
 };
@@ -61,29 +61,37 @@ ALLOWED_HOSTS_KEY_ = 'allowed_hosts';
 
 /**
  * Save the allowed host into chrome storage.  The saved object
- * in chrome storage has the below structure. The top-level key is used
- * as the argument for StorageArea get(), and the associated value will be
+ * in chrome storage has the below structure. The top-level key is the salted
+ * partial hash given to StorageArea get(), and the associated value will be
  * an inner object that has all the host details.
  *
- * {allowed_hosts:
- *     {https://www.example1.com: true,
- *      https://www.example2.com: true}
+ * {partialHash: {
+ *     ...
+ *     site: 'Facebook',
+ *     alwaysIgnore: {
+ *        https://www.example1.com: true,
+ *        'https://www.example2.com:8080': true
+ *     },
+ *     ...
  * }
  *
  * @private
  */
 document.getElementById('always_ignore').onclick = function() {
   if (confirm(chrome.i18n.getMessage('always_ignore_confirmation'))) {
-    chrome.storage.local.get(
-        ALLOWED_HOSTS_KEY_,
-        function(result) {
-          var currentHost = decodeURIComponent(parameters[0]);
-          if (result[ALLOWED_HOSTS_KEY_] === undefined) {
-            result[ALLOWED_HOSTS_KEY_] = {};
-          }
-          result[ALLOWED_HOSTS_KEY_][currentHost] = true;
-          chrome.storage.local.set(result);
+    chrome.storage.local.get(null, function(hashes) {
+      var currentHost = decodeURIComponent(parameters[0]);
+      for (var hash in hashes) {
+        if (!hashes.hasOwnProperty(hash)) continue;
+        var site = hashes[hash];
+        if (site.site === siteName) {
+          site.alwaysIgnore[currentHost] = true;
+          var data = {};
+          data[hash] = site;
+          chrome.storage.local.set(data);
           window.close();
-        });
+        }
+      }
+    });
   }
 };
