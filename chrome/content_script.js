@@ -220,8 +220,9 @@ passwordalert.handleManagedPolicyChanges_ =
  * @param {string} url
  * @param {string|RegExp} toMatch
  * @return {boolean}
+ * @private
  */
-passwordalert.pathMatch = function(url, toMatch) {
+passwordalert.pathMatch_ = function(url, toMatch) {
   var questionIndex = url.indexOf('?');
   if (questionIndex != -1) {
     url = url.slice(0, questionIndex);
@@ -258,7 +259,7 @@ passwordalert.completePageInitializationIfReady_ = function() {
   Object.keys(passwordalert.SITES).forEach(function(name) {
     var site = passwordalert.SITES[name];
     console.log('Checking for site: ' + name);
-    if (passwordalert.pathMatch(url, site.changePasswordURL) &&
+    if (passwordalert.pathMatch_(url, site.changePasswordURL) &&
         document.querySelector(site.changePasswordFormSelector)) {
       console.log('Password change page detected: ' + passwordalert.url_);
 
@@ -281,7 +282,7 @@ passwordalert.completePageInitializationIfReady_ = function() {
           }
       );
     }
-    else if (passwordalert.pathMatch(url, site.secondFactorURL)) {
+    else if (passwordalert.pathMatch_(url, site.secondFactorURL)) {
       console.log('Second factor URL detected: ' + passwordalert.url_);
 
       // Password was typed in successfully if we're on the 2FA page.
@@ -290,7 +291,7 @@ passwordalert.completePageInitializationIfReady_ = function() {
         site: name
       });
     }
-    else if (passwordalert.pathMatch(url, site.loginURL) &&
+    else if (passwordalert.pathMatch_(url, site.loginURL) &&
         document.querySelector(site.loginFormSelector)) {
       var loginForm = document.querySelector(site.loginFormSelector);
       console.log('Login page detected: ' + passwordalert.url_);
@@ -349,9 +350,9 @@ passwordalert.start_ = function(msg) {
     var site = passwordalert.SITES[name];
 
     // todo: make "always ignore" whitelist a page if not disabled for site
-    if ((passwordalert.pathMatch(passwordalert.url_, site.loginURL) &&
+    if ((passwordalert.pathMatch_(passwordalert.url_, site.loginURL) &&
         document.querySelector(site.loginFormSelector)) ||
-        passwordalert.pathMatch(passwordalert.url_, site.secondFactorURL)) {
+        passwordalert.pathMatch_(passwordalert.url_, site.secondFactorURL)) {
       chrome.runtime.sendMessage({
         action: 'whitelisted',
         site: name
